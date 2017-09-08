@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 14
+VisualStudioVersion = 14.0.25420.1
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSW-1", "FSW-1\FSW-1.csproj", "{79340207-AEFB-4019-9C34-20AD7C8C1746}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSWatcher", "FSWatcher\FSWatcher.csproj", "{FB9BD7EA-F1F8-4F9C-8B82-17E703C0C766}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{79340207-AEFB-4019-9C34-20AD7C8C1746}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{79340207-AEFB-4019-9C34-20AD7C8C1746}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{79340207-AEFB-4019-9C34-20AD7C8C1746}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{79340207-AEFB-4019-9C34-20AD7C8C1746}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FB9BD7EA-F1F8-4F9C-8B82-17E703C0C766}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FB9BD7EA-F1F8-4F9C-8B82-17E703C0C766}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FB9BD7EA-F1F8-4F9C-8B82-17E703C0C766}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FB9BD7EA-F1F8-4F9C-8B82-17E703C0C766}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
