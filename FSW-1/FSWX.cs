@@ -7,7 +7,7 @@ using System.Runtime.Serialization;
 using System.Collections.Concurrent;
 using System.Threading;
 
-namespace FSW_1
+namespace FSWX
 {
     [Serializable()]
     public class FSWXException : Exception
@@ -130,8 +130,7 @@ namespace FSW_1
     {
         private Watcher watcher;
         private ConcurrentQueue<FSWXEvent> eventlist;
-        private ConcurrentQueue<FSWXEvent> historyQ;
-        //private ConcurrentQueue<FSWXEvent> EventList;
+        private ConcurrentQueue<FSWXEvent> currentQ;
 
         Thread workThread;
 
@@ -145,7 +144,6 @@ namespace FSW_1
 
         public static FSWX Instance;
         System.Timers.Timer QTimer;
-        System.Timers.Timer HistoryTimer;
         bool isactive;
         bool isActive
         {
@@ -156,11 +154,6 @@ namespace FSW_1
             set
             {
                 isactive = value;
-                if (HistoryTimer != null)
-                {
-                    HistoryTimer.Stop();
-                    HistoryTimer.Start();
-                }
                 OnWork(this, new EventArgs());
             }
         }
@@ -171,53 +164,24 @@ namespace FSW_1
             public string Path { get; set; }
         }
 
-        public FSWX()
+        public FSWX(string monitorPath)
         {
             Instance = this;
             eventlist = new ConcurrentQueue<FSWXEvent>();
-            historyQ = new ConcurrentQueue<FSWXEvent>();
+            currentQ = new ConcurrentQueue<FSWXEvent>();
             workThread = new Thread(DoWork);
             OnWork += FSWX_OnWork;
             isActive = false;
             watcher =
                 new Watcher(
-                    @"C:\Users\Waleed\Desktop\#bmt-temp",
+                    monitorPath,
                     FSWX_DirCreated,
                     FSWX_DirDelete,
                     FSWX_FileCreated,
                     FSWX_FileChanged,
                     FSWX_FileDelete);
-            watcher.ErrorNotifier((path, ex) => { System.Console.WriteLine("{0}\n{1}", path, ex); });
-            watcher.Settings.SetPollFrequencyTo(100);
-            // Print strategy
-            System.Console.WriteLine(
-                "Will poll continuously: {0}",
-                watcher.Settings.ContinuousPolling);
-            System.Console.WriteLine(
-                "Poll frequency: {0} milliseconds",
-                watcher.Settings.PollFrequency);
-
-            System.Console.WriteLine(
-                "Evented directory create: {0}",
-                watcher.Settings.CanDetectEventedDirectoryCreate);
-            System.Console.WriteLine(
-                "Evented directory delete: {0}",
-                watcher.Settings.CanDetectEventedDirectoryDelete);
-            System.Console.WriteLine(
-                "Evented directory rename: {0}",
-                watcher.Settings.CanDetectEventedDirectoryRename);
-            System.Console.WriteLine(
-                "Evented file create: {0}",
-                watcher.Settings.CanDetectEventedFileCreate);
-            System.Console.WriteLine(
-                "Evented file change: {0}",
-                watcher.Settings.CanDetectEventedFileChange);
-            System.Console.WriteLine(
-                "Evented file delete: {0}",
-                watcher.Settings.CanDetectEventedFileDelete);
-            System.Console.WriteLine(
-                "Evented file rename: {0}",
-                watcher.Settings.CanDetectEventedFileRename);
+            //watcher.ErrorNotifier((path, ex) => { System.Console.WriteLine("{0}\n{1}", path, ex); });
+            watcher.Settings.SetPollFrequencyTo(1000);
         }
 
         private void FSWX_OnWork(object sender, EventArgs e)
@@ -252,19 +216,67 @@ namespace FSW_1
             }
         }
 
+        protected virtual bool IsFileLocked(FileInfo file)
+        {
+            FileStream stream = null;
+
+            try
+            {
+                stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.None);
+            }
+            catch
+            {
+                return true;
+            }
+            finally
+            {
+                if (stream != null)
+                    stream.Close();
+            }
+            return false;
+        }
+
         private void DoWork()
         {
-            ////////////////////
-
-            ConcurrentQueue<FSWXEvent> currentQ = new ConcurrentQueue<FSWXEvent>(eventlist);
-            eventlist = new ConcurrentQueue<FSWXEvent>();
+            //eventlist = new ConcurrentQueue<FSWXEvent>();
             ConcurrentQueue<FSWXEvent> realQ = new ConcurrentQueue<FSWXEvent>();
             ConcurrentQueue<FSWXEvent> finishedQ = new ConcurrentQueue<FSWXEvent>();
 
+            bool skipNextQ = false;
+            bool restartWork = false;
+
+            foreach (var x in eventlist)
+            {
+                if (x.Event != FSWXEventTypes.Deleted && x.Type == FSWXFileTypes.File)
+                {
+                    var fslock = new FileInfo(x.FullPath);
+                    while (IsFileLocked(fslock))
+                    {
+                        Thread.Sleep(500);
+                        restartWork = true;
+                    }
+                    if (restartWork)
+                    {
+                        DoWork();
+                    }
+                }
+            }
+
+            //Console.WriteLine("No more file lock");
+            // put in data in currentQ
+            currentQ = new ConcurrentQueue<FSWXEvent>();
+            foreach (var x in eventlist)
+            {
+                currentQ.Enqueue(x);
+                var y = (FSWXEvent) x.Clone();
+                eventlist.TryDequeue(out y);
+            }
+
+            // Find the max count and index
             int currentQ_count = currentQ.Count() - 1; // get the max index (not count)
             int currentQ_index = 0;
-            bool skipNextQ = false;
 
+            //Console.WriteLine("Ok or not?");
             foreach (var x in currentQ) //.AsParallel().AsOrdered())
             {
                 if (skipNextQ)
@@ -312,22 +324,14 @@ namespace FSW_1
                 ++currentQ_index;
             }
 
+            //historyQ = new ConcurrentQueue<FSWXEvent>(historyQ.Except(realQ));
+
             // fix subdir events and historyQ past subdir event
             List<string> rootFolder = new List<string>();
-            if (historyQ.Count > 0)
-                foreach (FSWXEvent x in historyQ)
-                {
-                    //if (realQ.Any(o => o.FullPath == x.FullPath))
-                    //{
-                    //   FSWXEvent o = (FSWXEvent)x.Clone();
-                    //    historyQ.TryDequeue(out o);
-                    //}
-                    //else
-                    //{
-                    rootFolder.Add((x.OldPath != null) ? x.OldPath : x.FullPath);
-                    //}
-                    //rootFolder.Add(x.FullPath);
-                }
+            //if (historyQ.Count > 0)
+            //    foreach (FSWXEvent x in historyQ)
+            //        rootFolder.Add((x.OldPath != null) ? x.OldPath : x.FullPath);
+
             ConcurrentQueue<FSWXEvent> filterQ = new ConcurrentQueue<FSWXEvent>();
             foreach (var x in realQ)
             {
@@ -341,22 +345,13 @@ namespace FSW_1
                 var y = (x.OldPath != null) ? x.OldPath : x.FullPath;
                 if (x.Type == FSWXFileTypes.Folder)
                 {
-                    if (rootFolder.Count == 0)
+                    if (rootFolder.Count == 0 || !isSubFolderArray(rootFolder, y))
                     {
                         rootFolder.Add(y);
                         filterQ.Enqueue(x);
-                        historyQ.Enqueue(x);
-                    }
-                    else if (!isSubFolderArray(rootFolder, y))
-                    {
-                        rootFolder.Add(y);
-                        filterQ.Enqueue(x);
-                        historyQ.Enqueue(x);
                     }
                     else
-                    {
                         continue;
-                    }
                 }
                 else
                 {
@@ -369,7 +364,7 @@ namespace FSW_1
 
             // give filtered events back to realQ
             realQ = new ConcurrentQueue<FSWXEvent>(filterQ);
-            //var dchanged = realQ.GroupBy(c => c.Name).Where(g => g.Skip(1).Any()).SelectMany(c => c).ToList();
+            var dchanged = realQ.GroupBy(c => c.FullPath).Where(g => g.Skip(1).Any()).SelectMany(c => c).ToList();
 
             // fire up events to seperate event handlers
             foreach (var x in realQ)
@@ -379,8 +374,10 @@ namespace FSW_1
                     case FSWXEventTypes.Created:
                         try
                         {
+                            //if (!IsFileLocked(new FileInfo(x.FullPath))) {
                             OnCreated(this, x);
                             finishedQ.Enqueue(x);
+
                         }
                         catch { }
                         break;
@@ -420,8 +417,6 @@ namespace FSW_1
                         break;
                 }
             }
-
-            //historyQ = new ConcurrentQueue<FSWXEvent>(finishedQ);
 
             var diffQ = realQ.Except(finishedQ);
             currentQ = new ConcurrentQueue<FSWXEvent>();
@@ -490,70 +485,10 @@ namespace FSW_1
         {
             QTimer = new System.Timers.Timer();
             QTimer.Elapsed += QTimer_Elapsed;
-            QTimer.Interval = 1500;
+            QTimer.Interval = 5000;
             QTimer.Enabled = true;
             QTimer.Start();
-            HistoryTimer = new System.Timers.Timer();
-            HistoryTimer.Elapsed += HistoryTimer_Elapsed;
-            HistoryTimer.Interval = 1000 * 30;
-            HistoryTimer.Start();
             watcher.Watch();
-        }
-
-        private void HistoryTimer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
-        {
-            if (!isActive)
-            {
-                historyQ = new ConcurrentQueue<FSWXEvent>();
-            }
-        }
-
-        ////////////////////
-    }
-
-    class Program
-    {
-        public static void Main(string[] args)
-        {
-            var fs = new FSWX();
-            fs.OnCreated += Fs_OnCreated;
-            fs.OnDeleted += Fs_OnDeleted;
-            fs.OnChanged += Fs_OnChanged;
-            fs.OnMoved += Fs_OnMoved;
-            fs.OnRenamed += Fs_OnRenamed;
-            fs.start();
-            System.Console.WriteLine("Ready");
-        }
-
-        private static void Fs_OnRenamed(object sender, FSWXEvent e)
-        {
-            ++ii;
-            Console.WriteLine("...\nEvent ({3}): {0}\nPath: {1}\nOldPath: {2}", e.Event, e.FullPath, e.OldPath, ii);
-        }
-
-        private static void Fs_OnMoved(object sender, FSWXEvent e)
-        {
-            ++ii;
-            Console.WriteLine("...\nEvent ({3}): {0}\nPath: {1}\nOldPath: {2}", e.Event, e.FullPath, e.OldPath, ii);
-        }
-
-        private static void Fs_OnChanged(object sender, FSWXEvent e)
-        {
-            ++ii;
-            Console.WriteLine("...\nEvent ({3}): {0}\nPath: {1}\nOldPath: {2}", e.Event, e.FullPath, e.OldPath, ii);
-        }
-
-        private static void Fs_OnDeleted(object sender, FSWXEvent e)
-        {
-            ++ii;
-            Console.WriteLine("...\nEvent ({3}): {0}\nPath: {1}\nOldPath: {2}", e.Event, e.FullPath, e.OldPath, ii);
-        }
-
-        static int ii = 0;
-        private static void Fs_OnCreated(object sender, FSWXEvent e)
-        {
-            ++ii;
-            Console.WriteLine("...\nEvent ({3}): {0}\nPath: {1}\nOldPath: {2}", e.Event, e.FullPath, e.OldPath, ii);
         }
     }
 }
